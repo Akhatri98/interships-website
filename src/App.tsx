@@ -1,5 +1,231 @@
-function App() {
-  return <div className="page">hi</div>
+import { useEffect, useMemo, useState } from 'react'
+import { fetchAllListings } from './lib/supabase'
+import type { KeywordCount, KeywordMode, Listing } from './types'
+import { ListingCard } from './components/ListingCard'
+import { KeywordFilter } from './components/KeywordFilter'
+import { Pagination } from './components/Pagination'
+
+const PAGE_SIZE = 100
+const FIELD_TERMS = [
+  'software engineer',
+  'data',
+  'machine learning',
+  'artificial intelligence',
+  'quantitative',
+  'finance',
+  'mechanical engineering',
+  'electrical engineering',
+  'aerospace',
+  'robotics',
+  'hardware',
+  'medical device',
+  'biotech',
+  'computer science',
+  'research scientist',
+  'product manager',
+  'sales',
+  'marketing',
+  'operations',
+  'business development',
+  'product designer',
+]
+
+function decodeSlug(slug: string | null): string {
+  if (!slug) return ''
+  try {
+    return decodeURIComponent(slug)
+  } catch {
+    return slug
+  }
 }
 
-export default App
+function normalizeKeyword(keyword: string): string {
+  return keyword.trim().toLowerCase()
+}
+
+function listingKeywords(listing: Listing): string[] {
+  const keywordSet = new Set(listing.keywords_matched.map(normalizeKeyword).filter(Boolean))
+  const text = `${listing.title ?? ''} ${decodeSlug(listing.company_slug)} ${listing.snippet ?? ''}`.toLowerCase()
+
+  for (const term of FIELD_TERMS) {
+    if (text.includes(term)) keywordSet.add(term)
+  }
+
+  return [...keywordSet]
+}
+
+export default function App() {
+  const [listings, setListings] = useState<Listing[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<KeywordMode>('OR')
+  const [page, setPage] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchAllListings()
+      .then((data) => {
+        if (!cancelled) setListings(data)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Reset to first page whenever the active filters change.
+  useEffect(() => {
+    setPage(0)
+  }, [search, selected, mode])
+
+  const keywordsByListingId = useMemo<Map<string, string[]>>(() => {
+    return new Map(listings.map((listing) => [listing.id, listingKeywords(listing)]))
+  }, [listings])
+
+  // Distinct keywords across all listings, most common first.
+  const availableKeywords = useMemo<KeywordCount[]>(() => {
+    const counts = new Map<string, number>()
+    for (const listing of listings) {
+      for (const k of keywordsByListingId.get(listing.id) ?? []) {
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .map(([keyword, count]) => ({ keyword, count }))
+      .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword))
+  }, [listings, keywordsByListingId])
+
+  // Search (slug + snippet) and keyword (AND/OR) filtering. Source is already
+  // sorted newest-first, so filtering preserves that order.
+  const filtered = useMemo<Listing[]>(() => {
+    const term = search.trim().toLowerCase()
+    const sel = [...selected]
+
+    return listings.filter((l) => {
+      if (term) {
+        const slug = decodeSlug(l.company_slug).toLowerCase()
+        const snip = l.snippet?.toLowerCase() ?? ''
+        if (!slug.includes(term) && !snip.includes(term)) return false
+      }
+
+      if (sel.length > 0) {
+        const kw = keywordsByListingId.get(l.id) ?? []
+        const matches =
+          mode === 'AND' ? sel.every((s) => kw.includes(s)) : sel.some((s) => kw.includes(s))
+        if (!matches) return false
+      }
+
+      return true
+    })
+  }, [listings, search, selected, mode, keywordsByListingId])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+
+  function toggleKeyword(keyword: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(keyword)) next.delete(keyword)
+      else next.add(keyword)
+      return next
+    })
+  }
+
+  const rangeStart = filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1
+  const rangeEnd = Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)
+
+  return (
+    <>
+      <div className="site-top">
+        <div className="topbar">
+          <div className="topbar-inner">
+            <div className="brand-wrap">
+              <img className="brand-icon" src="/favicon.jpeg" alt="Site icon" />
+              <h1 className="site-title">Adeel's Internship List</h1>
+            </div>
+            <a className="top-link" href="/thesis.html">
+              My thesis
+            </a>
+          </div>
+        </div>
+
+        <div className="noticebar">
+          <div className="noticebar-inner">
+            If this is your first time using this site, please read this{' '}
+            <a href="/info.html">disclaimer</a>.
+          </div>
+        </div>
+      </div>
+
+      <div className="app">
+        <header className="header">
+
+          <input
+            className="search"
+            type="search"
+            placeholder="Search company or snippet…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+
+          <KeywordFilter
+            keywords={availableKeywords}
+            selected={selected}
+            mode={mode}
+            onToggle={toggleKeyword}
+            onModeChange={setMode}
+            onClear={() => setSelected(new Set())}
+          />
+        </header>
+
+        <main className="content">
+          {loading && <p className="status">Loading listings…</p>}
+
+          {error && (
+            <p className="status status-error">
+              Failed to load listings: {error}
+            </p>
+          )}
+
+          {!loading && !error && (
+            <>
+              <div className="resultbar">
+                {filtered.length === 0 ? (
+                  'No listings match your filters.'
+                ) : (
+                  <>
+                    Showing <strong>{rangeStart}–{rangeEnd}</strong> of{' '}
+                    <strong>{filtered.length}</strong>
+                    {filtered.length !== listings.length && ` (of ${listings.length} total)`}
+                  </>
+                )}
+              </div>
+
+              <div className="list">
+                {pageItems.map((l) => (
+                  <ListingCard
+                    key={l.id}
+                    listing={l}
+                    keywords={keywordsByListingId.get(l.id) ?? []}
+                    activeKeywords={selected}
+                  />
+                ))}
+              </div>
+
+              <Pagination page={safePage} pageCount={pageCount} onPage={setPage} />
+            </>
+          )}
+        </main>
+      </div>
+    </>
+  )
+}
