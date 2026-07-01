@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchAllListings } from './lib/supabase'
-import type { KeywordCount, KeywordMode, Listing } from './types'
+import type { ChipCount, KeywordMode, Listing, PayFilter } from './types'
 import { ListingCard } from './components/ListingCard'
-import { KeywordFilter } from './components/KeywordFilter'
+import { ChipFilter } from './components/ChipFilter'
+import { PayToggle } from './components/PayToggle'
 import { Pagination } from './components/Pagination'
 
 const PAGE_SIZE = 100
+
+// Collapsed keyword chips: intern is a must, then the popular fields.
+const PRIORITY_KEYWORDS = ['intern', 'software', 'finance', 'ai', 'aerospace']
+
 const FIELD_TERMS = [
   'software engineer',
   'data',
@@ -45,7 +50,7 @@ function normalizeKeyword(keyword: string): string {
 
 function listingKeywords(listing: Listing): string[] {
   const keywordSet = new Set(listing.keywords_matched.map(normalizeKeyword).filter(Boolean))
-  const text = `${listing.title ?? ''} ${decodeSlug(listing.company_slug)} ${listing.snippet ?? ''}`.toLowerCase()
+  const text = `${listing.title ?? ''} ${listing.company ?? ''} ${decodeSlug(listing.company_slug)} ${listing.snippet ?? ''}`.toLowerCase()
 
   for (const term of FIELD_TERMS) {
     if (text.includes(term)) keywordSet.add(term)
@@ -54,14 +59,32 @@ function listingKeywords(listing: Listing): string[] {
   return [...keywordSet]
 }
 
+function isUnpaid(listing: Listing): boolean {
+  return (listing.pay ?? '').trim().toLowerCase() === 'unpaid'
+}
+
+// Build a count-sorted chip list from a value getter.
+function tally(listings: Listing[], get: (l: Listing) => Iterable<string>): ChipCount[] {
+  const counts = new Map<string, number>()
+  for (const listing of listings) {
+    for (const v of get(listing)) counts.set(v, (counts.get(v) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+}
+
 export default function App() {
   const [listings, setListings] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [search, setSearch] = useState('')
+  const [companySearch, setCompanySearch] = useState('')
+  const [snippetSearch, setSnippetSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<KeywordMode>('OR')
+  const [countries, setCountries] = useState<Set<string>>(new Set())
+  const [payFilter, setPayFilter] = useState<PayFilter>('all')
   const [page, setPage] = useState(0)
 
   useEffect(() => {
@@ -84,36 +107,39 @@ export default function App() {
   // Reset to first page whenever the active filters change.
   useEffect(() => {
     setPage(0)
-  }, [search, selected, mode])
+  }, [companySearch, snippetSearch, selected, mode, countries, payFilter])
 
   const keywordsByListingId = useMemo<Map<string, string[]>>(() => {
     return new Map(listings.map((listing) => [listing.id, listingKeywords(listing)]))
   }, [listings])
 
   // Distinct keywords across all listings, most common first.
-  const availableKeywords = useMemo<KeywordCount[]>(() => {
-    const counts = new Map<string, number>()
-    for (const listing of listings) {
-      for (const k of keywordsByListingId.get(listing.id) ?? []) {
-        counts.set(k, (counts.get(k) ?? 0) + 1)
-      }
-    }
-    return [...counts.entries()]
-      .map(([keyword, count]) => ({ keyword, count }))
-      .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword))
+  const availableKeywords = useMemo<ChipCount[]>(() => {
+    return tally(listings, (l) => keywordsByListingId.get(l.id) ?? [])
   }, [listings, keywordsByListingId])
 
-  // Search (slug + snippet) and keyword (AND/OR) filtering. Source is already
+  // Distinct countries across all listings, most common first (nulls skipped).
+  const availableCountries = useMemo<ChipCount[]>(() => {
+    return tally(listings, (l) => (l.country?.trim() ? [l.country.trim()] : []))
+  }, [listings])
+
+  // Search + keyword (AND/OR) + country + pay filtering. Source is already
   // sorted newest-first, so filtering preserves that order.
   const filtered = useMemo<Listing[]>(() => {
-    const term = search.trim().toLowerCase()
+    const companyTerm = companySearch.trim().toLowerCase()
+    const snippetTerm = snippetSearch.trim().toLowerCase()
     const sel = [...selected]
 
     return listings.filter((l) => {
-      if (term) {
+      if (companyTerm) {
+        const company = (l.company ?? '').toLowerCase()
         const slug = decodeSlug(l.company_slug).toLowerCase()
+        if (!company.includes(companyTerm) && !slug.includes(companyTerm)) return false
+      }
+
+      if (snippetTerm) {
         const snip = l.snippet?.toLowerCase() ?? ''
-        if (!slug.includes(term) && !snip.includes(term)) return false
+        if (!snip.includes(snippetTerm)) return false
       }
 
       if (sel.length > 0) {
@@ -123,19 +149,27 @@ export default function App() {
         if (!matches) return false
       }
 
+      if (countries.size > 0) {
+        const c = l.country?.trim() ?? ''
+        if (!countries.has(c)) return false
+      }
+
+      if (payFilter === 'hide' && isUnpaid(l)) return false
+      if (payFilter === 'only' && !isUnpaid(l)) return false
+
       return true
     })
-  }, [listings, search, selected, mode, keywordsByListingId])
+  }, [listings, companySearch, snippetSearch, selected, mode, countries, payFilter, keywordsByListingId])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
   const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
 
-  function toggleKeyword(keyword: string) {
-    setSelected((prev) => {
+  function toggleIn(setter: typeof setSelected, value: string) {
+    setter((prev) => {
       const next = new Set(prev)
-      if (next.has(keyword)) next.delete(keyword)
-      else next.add(keyword)
+      if (next.has(value)) next.delete(value)
+      else next.add(value)
       return next
     })
   }
@@ -168,22 +202,60 @@ export default function App() {
 
       <div className="app">
         <header className="header">
+          <div className="search-row">
+            <input
+              className="search"
+              type="search"
+              placeholder="Search company…"
+              value={companySearch}
+              onChange={(e) => setCompanySearch(e.target.value)}
+            />
+            <input
+              className="search"
+              type="search"
+              placeholder="Search snippet…"
+              value={snippetSearch}
+              onChange={(e) => setSnippetSearch(e.target.value)}
+            />
+          </div>
 
-          <input
-            className="search"
-            type="search"
-            placeholder="Search company or snippet…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+          <ChipFilter
+            label="Keywords"
+            items={availableKeywords}
+            selected={selected}
+            onToggle={(v) => toggleIn(setSelected, v)}
+            onClear={() => setSelected(new Set())}
+            priority={PRIORITY_KEYWORDS}
+            collapsedCount={PRIORITY_KEYWORDS.length}
+            controls={
+              <div className="mode-toggle" role="group" aria-label="Keyword match mode">
+                <button
+                  className={mode === 'OR' ? 'active' : ''}
+                  onClick={() => setMode('OR')}
+                  title="Match listings with ANY selected keyword"
+                >
+                  Any · OR
+                </button>
+                <button
+                  className={mode === 'AND' ? 'active' : ''}
+                  onClick={() => setMode('AND')}
+                  title="Match listings with ALL selected keywords"
+                >
+                  All · AND
+                </button>
+              </div>
+            }
           />
 
-          <KeywordFilter
-            keywords={availableKeywords}
-            selected={selected}
-            mode={mode}
-            onToggle={toggleKeyword}
-            onModeChange={setMode}
-            onClear={() => setSelected(new Set())}
+          <ChipFilter
+            label="Countries"
+            items={availableCountries}
+            selected={countries}
+            onToggle={(v) => toggleIn(setCountries, v)}
+            onClear={() => setCountries(new Set())}
+            priority={['United States']}
+            collapsedCount={6}
+            controls={<PayToggle value={payFilter} onChange={setPayFilter} />}
           />
         </header>
 

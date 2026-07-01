@@ -131,6 +131,16 @@ button {
   border-bottom: 1px solid #d7c4ac;
 }
 
+.search-row {
+  display: flex;
+  gap: 10px;
+}
+
+.search-row .search {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .search {
   width: 100%;
   padding: 11px 14px;
@@ -151,12 +161,12 @@ button {
   color: var(--muted);
 }
 
-/* ---------- Keyword filter ---------- */
-.kwfilter {
+/* ---------- Chip filters (keywords + countries) ---------- */
+.chipfilter {
   margin-top: 14px;
 }
 
-.kwfilter-head {
+.chipfilter-head {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -164,7 +174,7 @@ button {
   flex-wrap: wrap;
 }
 
-.kwfilter-label {
+.chipfilter-label {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -193,7 +203,7 @@ button {
   color: var(--accent-fg);
 }
 
-.kw-clear {
+.chip-clear {
   padding: 5px 10px;
   background: transparent;
   border: 1px solid #ccb59d;
@@ -202,12 +212,40 @@ button {
   font-size: 13px;
 }
 
-.kw-clear:hover {
+.chip-clear:hover {
   color: #2c2430;
   border-color: #7f5f7c;
 }
 
-.kw-list {
+/* 3-state unpaid toggle */
+.pay-toggle {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.pay-toggle.pay-all {
+  background: #f1ece4;
+  border-color: #ccb59d;
+  color: #6b5f56;
+}
+
+.pay-toggle.pay-hide {
+  background: #f6dede;
+  border-color: #d99a9a;
+  color: #9a2b2b;
+}
+
+.pay-toggle.pay-only {
+  background: #e0efdb;
+  border-color: #a9cf9c;
+  color: #2f6b28;
+}
+
+.chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
@@ -216,7 +254,7 @@ button {
   padding-right: 4px;
 }
 
-.kw-toggle {
+.chip-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -229,20 +267,35 @@ button {
   transition: background 0.12s, border-color 0.12s;
 }
 
-.kw-toggle:hover {
+.chip-toggle:hover {
   background: #f9efe4;
 }
 
-.kw-toggle.on {
+.chip-toggle.on {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-fg);
 }
 
-.kw-count {
+.chip-count {
   font-size: 11px;
   opacity: 0.6;
   font-variant-numeric: tabular-nums;
+}
+
+.chip-more {
+  padding: 5px 11px;
+  background: transparent;
+  border: 1px dashed #b9a68f;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chip-more:hover {
+  color: #2c2430;
+  border-color: #7f5f7c;
 }
 
 /* ---------- Result bar ---------- */
@@ -302,10 +355,35 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.card-slug {
-  margin-top: 3px;
+.card-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   font-size: 13px;
   color: #5f5260;
+}
+
+.card-company {
+  font-weight: 600;
+  color: #3d2f3e;
+}
+
+.card-company + .card-location::before {
+  content: '·';
+  margin-right: 10px;
+  color: #b9a68f;
+}
+
+.card-pay {
+  padding: 1px 8px;
+  background: #e4f0e0;
+  border: 1px solid #bcd8b3;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3c5c33;
 }
 
 .card-snippet {
