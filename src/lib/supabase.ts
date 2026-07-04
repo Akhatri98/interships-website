@@ -15,7 +15,7 @@ export const supabase = createClient(url, anonKey)
 
 // Only these columns are needed by the UI.
 const COLUMNS =
-  'id, canonical_url, title, company_slug, company, pay, location, country, keywords_matched, snippet, first_seen_at'
+  'id, canonical_url, title, company_slug, ats_source, company, pay, location, country, keywords_matched, snippet, first_seen_at'
 
 // PostgREST caps a single response (default 1000 rows), so page through with
 // .range() until a short page comes back. Sorted newest-first at the source.

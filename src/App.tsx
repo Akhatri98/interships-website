@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchAllListings } from './lib/supabase'
-import type { ChipCount, KeywordMode, Listing, PayFilter } from './types'
+import type { ChipCount, KeywordMode, Listing } from './types'
 import { ListingCard } from './components/ListingCard'
 import { ChipFilter } from './components/ChipFilter'
-import { PayToggle } from './components/PayToggle'
 import { Pagination } from './components/Pagination'
 
 const PAGE_SIZE = 100
@@ -59,10 +58,6 @@ function listingKeywords(listing: Listing): string[] {
   return [...keywordSet]
 }
 
-function isUnpaid(listing: Listing): boolean {
-  return (listing.pay ?? '').trim().toLowerCase() === 'unpaid'
-}
-
 // Build a count-sorted chip list from a value getter.
 function tally(listings: Listing[], get: (l: Listing) => Iterable<string>): ChipCount[] {
   const counts = new Map<string, number>()
@@ -84,7 +79,7 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<KeywordMode>('OR')
   const [countries, setCountries] = useState<Set<string>>(new Set())
-  const [payFilter, setPayFilter] = useState<PayFilter>('all')
+  const [atsSources, setAtsSources] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(0)
 
   useEffect(() => {
@@ -107,7 +102,7 @@ export default function App() {
   // Reset to first page whenever the active filters change.
   useEffect(() => {
     setPage(0)
-  }, [companySearch, snippetSearch, selected, mode, countries, payFilter])
+  }, [companySearch, snippetSearch, selected, mode, countries, atsSources])
 
   const keywordsByListingId = useMemo<Map<string, string[]>>(() => {
     return new Map(listings.map((listing) => [listing.id, listingKeywords(listing)]))
@@ -123,7 +118,12 @@ export default function App() {
     return tally(listings, (l) => (l.country?.trim() ? [l.country.trim()] : []))
   }, [listings])
 
-  // Search + keyword (AND/OR) + country + pay filtering. Source is already
+  // Distinct ATS sources across all listings, most common first (nulls skipped).
+  const availableAtsSources = useMemo<ChipCount[]>(() => {
+    return tally(listings, (l) => (l.ats_source?.trim() ? [l.ats_source.trim()] : []))
+  }, [listings])
+
+  // Search + keyword (AND/OR) + country + ATS-source filtering. Source is already
   // sorted newest-first, so filtering preserves that order.
   const filtered = useMemo<Listing[]>(() => {
     const companyTerm = companySearch.trim().toLowerCase()
@@ -154,12 +154,14 @@ export default function App() {
         if (!countries.has(c)) return false
       }
 
-      if (payFilter === 'hide' && isUnpaid(l)) return false
-      if (payFilter === 'only' && !isUnpaid(l)) return false
+      if (atsSources.size > 0) {
+        const a = l.ats_source?.trim() ?? ''
+        if (!atsSources.has(a)) return false
+      }
 
       return true
     })
-  }, [listings, companySearch, snippetSearch, selected, mode, countries, payFilter, keywordsByListingId])
+  }, [listings, companySearch, snippetSearch, selected, mode, countries, atsSources, keywordsByListingId])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
@@ -255,7 +257,15 @@ export default function App() {
             onClear={() => setCountries(new Set())}
             priority={['United States']}
             collapsedCount={6}
-            controls={<PayToggle value={payFilter} onChange={setPayFilter} />}
+          />
+
+          <ChipFilter
+            label="ATS source"
+            items={availableAtsSources}
+            selected={atsSources}
+            onToggle={(v) => toggleIn(setAtsSources, v)}
+            onClear={() => setAtsSources(new Set())}
+            collapsedCount={6}
           />
         </header>
 

@@ -52,10 +52,11 @@ function displayLocation(listing: Listing): string {
 }
 
 export function ListingCard({ listing, keywords, activeKeywords }: Props) {
-  const { canonical_url, title, pay, first_seen_at } = listing
+  const { canonical_url, title, pay, ats_source, first_seen_at } = listing
   const company = displayCompany(listing)
   const location = displayLocation(listing)
   const payLabel = pay?.trim()
+  const ats = ats_source?.trim()
 
   return (
     <article className="card">
@@ -63,9 +64,12 @@ export function ListingCard({ listing, keywords, activeKeywords }: Props) {
         <a className="card-title" href={canonical_url} target="_blank" rel="noreferrer">
           {title?.trim() || canonical_url}
         </a>
-        <time className="card-date" dateTime={first_seen_at}>
-          {formatSeen(first_seen_at)}
-        </time>
+        <div className="card-head-right">
+          <time className="card-date" dateTime={first_seen_at}>
+            {formatSeen(first_seen_at)}
+          </time>
+          {ats && <span className="card-ats">{ats}</span>}
+        </div>
       </div>
 
       <div className="card-meta">
