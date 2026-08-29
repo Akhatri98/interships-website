@@ -18,6 +18,36 @@ const MODES: { value: KeywordMode; label: string; title: string }[] = [
   { value: 'NOT', label: 'None · NOT', title: 'Listings with NONE of the selected keywords' },
 ]
 
+const DEFAULT_FILTERS = {
+  company: '',
+  text: '',
+  keywords: ['intern', 'software'] as string[],
+  mode: 'AND' as KeywordMode,
+  countries: ['United States'] as string[],
+  atsSources: [] as string[],
+  dateRange: '7d' as DateRange,
+}
+
+type Filters = typeof DEFAULT_FILTERS
+
+/* Filters go in sessionStorage rather than localStorage on purpose: a refresh
+   (or a back/forward) keeps whatever you had set, a brand-new tab starts over
+   from the defaults above. */
+const FILTERS_KEY = 'filters'
+
+function readFilters(): Filters {
+  try {
+    const saved = sessionStorage.getItem(FILTERS_KEY)
+    if (saved) return { ...DEFAULT_FILTERS, ...(JSON.parse(saved) as Partial<Filters>) }
+  } catch {
+    /* blocked storage, or a stale/garbled entry — just use the defaults */
+  }
+  return DEFAULT_FILTERS
+}
+
+// Read once per page load, so StrictMode's double mount can't re-read it.
+const INITIAL_FILTERS = readFilters()
+
 type Theme = 'light' | 'dark'
 
 /* The inline script in index.html has already stamped <html data-theme>, so
@@ -71,13 +101,15 @@ function useDebounced<T>(value: T, ms: number): T {
 export default function App() {
   const [theme, toggleEdition] = useEdition()
 
-  const [companyInput, setCompanyInput] = useState('')
-  const [textInput, setTextInput] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [mode, setMode] = useState<KeywordMode>('OR')
-  const [countries, setCountries] = useState<Set<string>>(new Set())
-  const [atsSources, setAtsSources] = useState<Set<string>>(new Set())
-  const [dateRange, setDateRange] = useState<DateRange>('any')
+  const [companyInput, setCompanyInput] = useState(INITIAL_FILTERS.company)
+  const [textInput, setTextInput] = useState(INITIAL_FILTERS.text)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(INITIAL_FILTERS.keywords))
+  const [mode, setMode] = useState<KeywordMode>(INITIAL_FILTERS.mode)
+  const [countries, setCountries] = useState<Set<string>>(() => new Set(INITIAL_FILTERS.countries))
+  const [atsSources, setAtsSources] = useState<Set<string>>(
+    () => new Set(INITIAL_FILTERS.atsSources),
+  )
+  const [dateRange, setDateRange] = useState<DateRange>(INITIAL_FILTERS.dateRange)
   const [page, setPage] = useState(0)
 
   const [rows, setRows] = useState<Listing[]>([])
@@ -151,6 +183,25 @@ export default function App() {
     }
   }, [])
 
+  // Hold the filter set for the life of this tab, so a refresh picks up where
+  // the reader left off instead of snapping back to the defaults.
+  useEffect(() => {
+    const filters: Filters = {
+      company: companyInput,
+      text: textInput,
+      keywords: [...selected],
+      mode,
+      countries: [...countries],
+      atsSources: [...atsSources],
+      dateRange,
+    }
+
+    try {
+      sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
+    } catch {
+    }
+  }, [companyInput, textInput, selected, mode, countries, atsSources, dateRange])
+
   // Any filter change puts you back on the first page. Both updates land in
   // one React batch, so it costs one request, not two.
   function onFilterChange(apply: () => void) {
@@ -184,8 +235,8 @@ export default function App() {
       <header className="masthead">
         <h1 className="site-title">Adeel's Internship List</h1>
         <p className="meta">
-          <span>Scraped hourly from ATS boards</span>
-          <span>{facets ? `${facets.total.toLocaleString()} listings` : 'Updated hourly'}</span>
+          <span>Scraped from ATS boards</span>
+          <span>{facets ? `${facets.total.toLocaleString()} listings` : ''}</span>
         </p>
 
         <nav className="mast-nav">
