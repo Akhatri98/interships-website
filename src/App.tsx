@@ -1,313 +1,316 @@
-import { useEffect, useMemo, useState } from 'react'
-import { fetchAllListings } from './lib/supabase'
-import type { ChipCount, KeywordMode, Listing } from './types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { fetchFacets, fetchListingPage } from './lib/supabase'
+import type { DateRange, Facets, KeywordMode, Listing, ListingQuery } from './types'
 import { ListingCard } from './components/ListingCard'
 import { ChipFilter } from './components/ChipFilter'
+import { DateFilter } from './components/DateFilter'
 import { Pagination } from './components/Pagination'
 
 const PAGE_SIZE = 100
 
-// Collapsed keyword chips: intern is a must, then the popular fields.
-const PRIORITY_KEYWORDS = ['intern', 'software', 'finance', 'ai', 'aerospace']
+// Collapsed keyword chips: intern is a must, then the popular fields. These
+// have to match the scraper's own keyword values exactly, casing included.
+const PRIORITY_KEYWORDS = ['intern', 'software', 'data', 'finance', 'AI']
 
-const FIELD_TERMS = [
-  'software engineer',
-  'data',
-  'machine learning',
-  'artificial intelligence',
-  'quantitative',
-  'finance',
-  'mechanical engineering',
-  'electrical engineering',
-  'aerospace',
-  'robotics',
-  'hardware',
-  'medical device',
-  'biotech',
-  'computer science',
-  'research scientist',
-  'product manager',
-  'sales',
-  'marketing',
-  'operations',
-  'business development',
-  'product designer',
+const MODES: { value: KeywordMode; label: string; title: string }[] = [
+  { value: 'OR', label: 'Any · OR', title: 'Listings with ANY selected keyword' },
+  { value: 'AND', label: 'All · AND', title: 'Listings with ALL selected keywords' },
+  { value: 'NOT', label: 'None · NOT', title: 'Listings with NONE of the selected keywords' },
 ]
 
-function decodeSlug(slug: string | null): string {
-  if (!slug) return ''
-  try {
-    return decodeURIComponent(slug)
-  } catch {
-    return slug
+type Theme = 'light' | 'dark'
+
+/* The inline script in index.html has already stamped <html data-theme>, so
+   we read the edition off the document rather than guessing it again. */
+function useEdition(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  )
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
+
+  // Until the reader picks an edition, keep following the system setting.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => {
+      if (!localStorage.getItem('theme')) setTheme(mq.matches ? 'dark' : 'light')
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const toggle = () => {
+    setTheme((cur) => {
+      const next: Theme = cur === 'dark' ? 'light' : 'dark'
+      try {
+        localStorage.setItem('theme', next)
+      } catch {
+        /* private browsing — the choice just won't outlive the tab */
+      }
+      return next
+    })
   }
+
+  return [theme, toggle]
 }
 
-function normalizeKeyword(keyword: string): string {
-  return keyword.trim().toLowerCase()
-}
+// Typing shouldn't put a query on the wire per keystroke.
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value)
 
-function listingKeywords(listing: Listing): string[] {
-  const keywordSet = new Set(listing.keywords_matched.map(normalizeKeyword).filter(Boolean))
-  const text = `${listing.title ?? ''} ${listing.company ?? ''} ${decodeSlug(listing.company_slug)} ${listing.snippet ?? ''}`.toLowerCase()
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms)
+    return () => clearTimeout(timer)
+  }, [value, ms])
 
-  for (const term of FIELD_TERMS) {
-    if (text.includes(term)) keywordSet.add(term)
-  }
-
-  return [...keywordSet]
-}
-
-// Build a count-sorted chip list from a value getter.
-function tally(listings: Listing[], get: (l: Listing) => Iterable<string>): ChipCount[] {
-  const counts = new Map<string, number>()
-  for (const listing of listings) {
-    for (const v of get(listing)) counts.set(v, (counts.get(v) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+  return settled
 }
 
 export default function App() {
-  const [listings, setListings] = useState<Listing[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [theme, toggleEdition] = useEdition()
 
-  const [companySearch, setCompanySearch] = useState('')
-  const [snippetSearch, setSnippetSearch] = useState('')
+  const [companyInput, setCompanyInput] = useState('')
+  const [textInput, setTextInput] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<KeywordMode>('OR')
   const [countries, setCountries] = useState<Set<string>>(new Set())
   const [atsSources, setAtsSources] = useState<Set<string>>(new Set())
+  const [dateRange, setDateRange] = useState<DateRange>('any')
   const [page, setPage] = useState(0)
 
+  const [rows, setRows] = useState<Listing[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false) // has a first page ever landed?
+  const [error, setError] = useState<string | null>(null)
+
+  const [facets, setFacets] = useState<Facets | null>(null)
+  const [facetError, setFacetError] = useState<string | null>(null)
+
+  const company = useDebounced(companyInput, 300)
+  const text = useDebounced(textInput, 300)
+
+  const query = useMemo<ListingQuery>(
+    () => ({
+      company,
+      text,
+      keywords: [...selected],
+      keywordMode: mode,
+      countries: [...countries],
+      atsSources: [...atsSources],
+      dateRange,
+      page,
+      pageSize: PAGE_SIZE,
+    }),
+    [company, text, selected, mode, countries, atsSources, dateRange, page],
+  )
+
+  /* One page at a time, straight from the database. Responses can land out of
+     order when filters change quickly, so only the newest one is allowed to
+     write to state. */
+  const seq = useRef(0)
   useEffect(() => {
-    let cancelled = false
-    fetchAllListings()
-      .then((data) => {
-        if (!cancelled) setListings(data)
+    const id = ++seq.current
+    setLoading(true)
+
+    fetchListingPage(query)
+      .then((result) => {
+        if (seq.current !== id) return
+        setRows(result.rows)
+        setTotal(result.total)
+        setError(null)
+        setLoaded(true)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (seq.current !== id) return
+        setError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (seq.current === id) setLoading(false)
       })
+  }, [query])
+
+  /* The chip vocabularies come from a separate, much narrower sweep of the
+     whole table. It runs alongside the first page rather than blocking it, so
+     the listings show up first and the filters fill in a moment later. */
+  useEffect(() => {
+    let cancelled = false
+
+    fetchFacets()
+      .then((f) => {
+        if (!cancelled) setFacets(f)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setFacetError(err instanceof Error ? err.message : String(err))
+      })
+
     return () => {
       cancelled = true
     }
   }, [])
 
-  // Reset to first page whenever the active filters change.
-  useEffect(() => {
+  // Any filter change puts you back on the first page. Both updates land in
+  // one React batch, so it costs one request, not two.
+  function onFilterChange(apply: () => void) {
     setPage(0)
-  }, [companySearch, snippetSearch, selected, mode, countries, atsSources])
-
-  const keywordsByListingId = useMemo<Map<string, string[]>>(() => {
-    return new Map(listings.map((listing) => [listing.id, listingKeywords(listing)]))
-  }, [listings])
-
-  // Distinct keywords across all listings, most common first.
-  const availableKeywords = useMemo<ChipCount[]>(() => {
-    return tally(listings, (l) => keywordsByListingId.get(l.id) ?? [])
-  }, [listings, keywordsByListingId])
-
-  // Distinct countries across all listings, most common first (nulls skipped).
-  const availableCountries = useMemo<ChipCount[]>(() => {
-    return tally(listings, (l) => (l.country?.trim() ? [l.country.trim()] : []))
-  }, [listings])
-
-  // Distinct ATS sources across all listings, most common first (nulls skipped).
-  const availableAtsSources = useMemo<ChipCount[]>(() => {
-    return tally(listings, (l) => (l.ats_source?.trim() ? [l.ats_source.trim()] : []))
-  }, [listings])
-
-  // Search + keyword (AND/OR) + country + ATS-source filtering. Source is already
-  // sorted newest-first, so filtering preserves that order.
-  const filtered = useMemo<Listing[]>(() => {
-    const companyTerm = companySearch.trim().toLowerCase()
-    const snippetTerm = snippetSearch.trim().toLowerCase()
-    const sel = [...selected]
-
-    return listings.filter((l) => {
-      if (companyTerm) {
-        const company = (l.company ?? '').toLowerCase()
-        const slug = decodeSlug(l.company_slug).toLowerCase()
-        if (!company.includes(companyTerm) && !slug.includes(companyTerm)) return false
-      }
-
-      if (snippetTerm) {
-        const snip = l.snippet?.toLowerCase() ?? ''
-        if (!snip.includes(snippetTerm)) return false
-      }
-
-      if (sel.length > 0) {
-        const kw = keywordsByListingId.get(l.id) ?? []
-        const matches =
-          mode === 'AND' ? sel.every((s) => kw.includes(s)) : sel.some((s) => kw.includes(s))
-        if (!matches) return false
-      }
-
-      if (countries.size > 0) {
-        const c = l.country?.trim() ?? ''
-        if (!countries.has(c)) return false
-      }
-
-      if (atsSources.size > 0) {
-        const a = l.ats_source?.trim() ?? ''
-        if (!atsSources.has(a)) return false
-      }
-
-      return true
-    })
-  }, [listings, companySearch, snippetSearch, selected, mode, countries, atsSources, keywordsByListingId])
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const safePage = Math.min(page, pageCount - 1)
-  const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
-
-  function toggleIn(setter: typeof setSelected, value: string) {
-    setter((prev) => {
-      const next = new Set(prev)
-      if (next.has(value)) next.delete(value)
-      else next.add(value)
-      return next
-    })
+    apply()
   }
 
-  const rangeStart = filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1
-  const rangeEnd = Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)
+  function toggleIn(setter: typeof setSelected, value: string) {
+    onFilterChange(() =>
+      setter((prev) => {
+        const next = new Set(prev)
+        if (next.has(value)) next.delete(value)
+        else next.add(value)
+        return next
+      }),
+    )
+  }
+
+  function goToPage(next: number) {
+    setPage(next)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const rangeStart = total === 0 ? 0 : page * PAGE_SIZE + 1
+  const rangeEnd = Math.min(total, page * PAGE_SIZE + PAGE_SIZE)
+  const filtering = facets !== null && total !== facets.total
 
   return (
-    <>
-      <div className="site-top">
-        <div className="topbar">
-          <div className="topbar-inner">
-            <div className="brand-wrap">
-              <img className="brand-icon" src="/favicon.jpeg" alt="Site icon" />
-              <h1 className="site-title">Adeel's Internship List</h1>
-            </div>
-            <a className="top-link" href="/thesis.html">
-              My thesis
-            </a>
-          </div>
+    <div className="app">
+      <header className="masthead">
+        <h1 className="site-title">Adeel's Internship List</h1>
+        <p className="meta">
+          <span>Scraped hourly from ATS boards</span>
+          <span>{facets ? `${facets.total.toLocaleString()} listings` : 'Updated hourly'}</span>
+        </p>
+
+        <nav className="mast-nav">
+          <span className="mast-links">
+            First time here? Please read the <a href="/info.html">disclaimer</a>
+          </span>
+          <button
+            className="edition"
+            onClick={toggleEdition}
+            aria-label={theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
+          >
+            {theme === 'dark' ? 'Light' : 'Dark'}
+          </button>
+        </nav>
+      </header>
+
+      <section className="block">
+        <h2 className="block-label">Filters</h2>
+
+        <div className="fields">
+          <input
+            className="search"
+            type="search"
+            placeholder="Company…"
+            aria-label="Search company"
+            value={companyInput}
+            onChange={(e) => onFilterChange(() => setCompanyInput(e.target.value))}
+          />
+          <input
+            className="search"
+            type="search"
+            placeholder="Title or description…"
+            aria-label="Search title or description"
+            value={textInput}
+            onChange={(e) => onFilterChange(() => setTextInput(e.target.value))}
+          />
         </div>
 
-        <div className="noticebar">
-          <div className="noticebar-inner">
-            If this is your first time using this site, please read this{' '}
-            <a href="/info.html">disclaimer</a>.
-          </div>
-        </div>
-      </div>
+        <DateFilter value={dateRange} onChange={(v) => onFilterChange(() => setDateRange(v))} />
 
-      <div className="app">
-        <header className="header">
-          <div className="search-row">
-            <input
-              className="search"
-              type="search"
-              placeholder="Search company…"
-              value={companySearch}
-              onChange={(e) => setCompanySearch(e.target.value)}
+        {facetError && <p className="group-note">Filters unavailable: {facetError}</p>}
+
+        {facets && (
+          <>
+            <ChipFilter
+              label="Keywords"
+              items={facets.keywords}
+              selected={selected}
+              onToggle={(v) => toggleIn(setSelected, v)}
+              onClear={() => onFilterChange(() => setSelected(new Set()))}
+              priority={PRIORITY_KEYWORDS}
+              collapsedCount={PRIORITY_KEYWORDS.length}
+              controls={
+                <div className="mode-toggle" role="group" aria-label="Keyword match mode">
+                  {MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      className={mode === m.value ? 'active' : ''}
+                      onClick={() => onFilterChange(() => setMode(m.value))}
+                      title={m.title}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              }
             />
-            <input
-              className="search"
-              type="search"
-              placeholder="Search snippet…"
-              value={snippetSearch}
-              onChange={(e) => setSnippetSearch(e.target.value)}
+
+            <ChipFilter
+              label="Countries"
+              items={facets.countries}
+              selected={countries}
+              onToggle={(v) => toggleIn(setCountries, v)}
+              onClear={() => onFilterChange(() => setCountries(new Set()))}
+              priority={['United States']}
+              collapsedCount={6}
             />
-          </div>
 
-          <ChipFilter
-            label="Keywords"
-            items={availableKeywords}
-            selected={selected}
-            onToggle={(v) => toggleIn(setSelected, v)}
-            onClear={() => setSelected(new Set())}
-            priority={PRIORITY_KEYWORDS}
-            collapsedCount={PRIORITY_KEYWORDS.length}
-            controls={
-              <div className="mode-toggle" role="group" aria-label="Keyword match mode">
-                <button
-                  className={mode === 'OR' ? 'active' : ''}
-                  onClick={() => setMode('OR')}
-                  title="Match listings with ANY selected keyword"
-                >
-                  Any · OR
-                </button>
-                <button
-                  className={mode === 'AND' ? 'active' : ''}
-                  onClick={() => setMode('AND')}
-                  title="Match listings with ALL selected keywords"
-                >
-                  All · AND
-                </button>
-              </div>
-            }
-          />
+            <ChipFilter
+              label="ATS source"
+              items={facets.atsSources}
+              selected={atsSources}
+              onToggle={(v) => toggleIn(setAtsSources, v)}
+              onClear={() => onFilterChange(() => setAtsSources(new Set()))}
+              collapsedCount={6}
+            />
+          </>
+        )}
+      </section>
 
-          <ChipFilter
-            label="Countries"
-            items={availableCountries}
-            selected={countries}
-            onToggle={(v) => toggleIn(setCountries, v)}
-            onClear={() => setCountries(new Set())}
-            priority={['United States']}
-            collapsedCount={6}
-          />
+      <main className="block">
+        <h2 className="block-label">Listings</h2>
 
-          <ChipFilter
-            label="ATS source"
-            items={availableAtsSources}
-            selected={atsSources}
-            onToggle={(v) => toggleIn(setAtsSources, v)}
-            onClear={() => setAtsSources(new Set())}
-            collapsedCount={6}
-          />
-        </header>
+        {error && <p className="status status-error">Failed to load listings: {error}</p>}
 
-        <main className="content">
-          {loading && <p className="status">Loading listings…</p>}
+        {!error && !loaded && <p className="status">Loading listings…</p>}
 
-          {error && (
-            <p className="status status-error">
-              Failed to load listings: {error}
+        {!error && loaded && (
+          <>
+            <p className="resultbar">
+              {total === 0 ? (
+                'No listings match your filters.'
+              ) : (
+                <>
+                  Showing{' '}
+                  <strong>
+                    {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()}
+                  </strong>{' '}
+                  of <strong>{total.toLocaleString()}</strong>
+                  {filtering && ` (of ${facets.total.toLocaleString()} total)`}
+                </>
+              )}
+              {loading && <span className="working"> · working…</span>}
             </p>
-          )}
 
-          {!loading && !error && (
-            <>
-              <div className="resultbar">
-                {filtered.length === 0 ? (
-                  'No listings match your filters.'
-                ) : (
-                  <>
-                    Showing <strong>{rangeStart}–{rangeEnd}</strong> of{' '}
-                    <strong>{filtered.length}</strong>
-                    {filtered.length !== listings.length && ` (of ${listings.length} total)`}
-                  </>
-                )}
-              </div>
+            <div className={`list ${loading ? 'is-stale' : ''}`}>
+              {rows.map((l) => (
+                <ListingCard key={l.id} listing={l} activeKeywords={selected} />
+              ))}
+            </div>
 
-              <div className="list">
-                {pageItems.map((l) => (
-                  <ListingCard
-                    key={l.id}
-                    listing={l}
-                    keywords={keywordsByListingId.get(l.id) ?? []}
-                    activeKeywords={selected}
-                  />
-                ))}
-              </div>
-
-              <Pagination page={safePage} pageCount={pageCount} onPage={setPage} />
-            </>
-          )}
-        </main>
-      </div>
-    </>
+            <Pagination page={page} pageCount={pageCount} onPage={goToPage} />
+          </>
+        )}
+      </main>
+    </div>
   )
 }

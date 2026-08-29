@@ -21,7 +21,6 @@ function formatSeen(iso: string): string {
 
 interface Props {
   listing: Listing
-  keywords: string[]
   activeKeywords: Set<string>
 }
 
@@ -51,42 +50,45 @@ function displayLocation(listing: Listing): string {
   return parts.length ? parts.join(' · ') : 'Location not provided'
 }
 
-export function ListingCard({ listing, keywords, activeKeywords }: Props) {
+/* A listing is a dated entry in a list, not a card: title and date on one
+   line, the particulars under it, everything separated by a hairline. */
+export function ListingCard({ listing, activeKeywords }: Props) {
   const { canonical_url, title, pay, ats_source, first_seen_at } = listing
+  const keywords = listing.keywords_matched ?? []
   const company = displayCompany(listing)
   const location = displayLocation(listing)
   const payLabel = pay?.trim()
   const ats = ats_source?.trim()
 
   return (
-    <article className="card">
-      <div className="card-head">
-        <a className="card-title" href={canonical_url} target="_blank" rel="noreferrer">
+    <article className="entry">
+      <p className="entry-head">
+        <a className="entry-title" href={canonical_url} target="_blank" rel="noreferrer">
           {title?.trim() || canonical_url}
         </a>
-        <div className="card-head-right">
-          <time className="card-date" dateTime={first_seen_at}>
-            {formatSeen(first_seen_at)}
-          </time>
-          {ats && <span className="card-ats">{ats}</span>}
-        </div>
-      </div>
+        <time className="entry-date" dateTime={first_seen_at}>
+          {formatSeen(first_seen_at)}
+        </time>
+      </p>
 
-      <div className="card-meta">
-        {company && <span className="card-company">{company}</span>}
-        <span className="card-location">{location}</span>
-        {payLabel && <span className="card-pay">{payLabel}</span>}
-      </div>
+      <p className="entry-meta">
+        {company && <span className="entry-company">{company}</span>}
+        <span className="entry-location">{location}</span>
+        {payLabel && <span className="entry-pay">{payLabel}</span>}
+        {ats && <span className="entry-ats">{ats}</span>}
+      </p>
 
-      {listing.snippet?.trim() && <p className="card-snippet">{listing.snippet}</p>}
+      {listing.snippet?.trim() && <p className="entry-note">{listing.snippet}</p>}
 
-      <div className="card-keywords">
-        {keywords.map((k) => (
-          <span key={k} className={`kw ${activeKeywords.has(k) ? 'kw-active' : ''}`}>
-            {k}
-          </span>
-        ))}
-      </div>
+      {keywords.length > 0 && (
+        <p className="entry-kw">
+          {keywords.map((k) => (
+            <span key={k} className={`kw ${activeKeywords.has(k) ? 'kw-active' : ''}`}>
+              {k}
+            </span>
+          ))}
+        </p>
+      )}
     </article>
   )
 }

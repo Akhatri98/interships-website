@@ -4,32 +4,158 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Why This Site Was Built</title>
+    <title>Why This Site Was Built — Adeel's Internship List</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.jpeg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;display=swap" />
+
+    <script>
+        // Same pre-paint edition stamp as the board, so moving between them
+        // never flashes the wrong one.
+        (function () {
+            try {
+                var saved = localStorage.getItem('theme');
+                var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.documentElement.dataset.theme = saved || (dark ? 'dark' : 'light');
+            } catch (e) {
+                document.documentElement.dataset.theme = 'light';
+            }
+        })();
+    </script>
+
     <style>
-        body {
+        :root {
+            color-scheme: light;
+            --paper: #fdfdfb;
+            --ink: #191917;
+            --ink-2: #55554e;
+            --ink-3: #8b8a81;
+            --rule: #e6e4dd;
+            --rule-2: #c7c4ba;
+            --accent: #6c5f9e;
+            --accent-soft: #9086b8;
+            --sel: rgba(108, 95, 158, 0.15);
+            --serif: "Source Serif 4", Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+            --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --paper: #141412;
+            --ink: #e9e8e2;
+            --ink-2: #a3a199;
+            --ink-3: #75736b;
+            --rule: #2b2a26;
+            --rule-2: #43423b;
+            --accent: #b3a5db;
+            --accent-soft: #8479b0;
+            --sel: rgba(179, 165, 219, 0.2);
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
             margin: 0;
-            padding: 40px 20px;
-            font-family: "Segoe UI", Tahoma, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background: #f8f8f8;
+            padding: 0;
+        }
+
+        body {
+            background: var(--paper);
+            color: var(--ink);
+            font-family: var(--serif);
+            font-size: 18px;
+            line-height: 1.62;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        ::selection {
+            background: var(--sel);
         }
 
         main {
-            max-width: 840px;
+            max-width: 39rem;
             margin: 0 auto;
-            background: #ffffff;
-            border: 1px solid #dddddd;
-            border-radius: 10px;
-            padding: 28px;
-        }
-
-        h1 {
-            margin-top: 0;
+            padding: 4.5rem 1.5rem 6rem;
         }
 
         a {
-            color: #1a1a1a;
+            color: inherit;
+            text-decoration: underline;
+            text-decoration-color: var(--rule-2);
+            text-decoration-thickness: 1px;
+            text-underline-offset: 0.18em;
+        }
+
+        a:hover {
+            color: var(--accent);
+            text-decoration-color: currentColor;
+        }
+
+        h1 {
+            color: var(--accent);
+            font-size: 2.1rem;
+            font-weight: 400;
+            letter-spacing: -0.012em;
+            line-height: 1.1;
+            margin-bottom: 0.75rem;
+        }
+
+        .meta,
+        .back {
+            font-family: var(--mono);
+            font-weight: 500;
+            font-size: 0.66rem;
+            text-transform: uppercase;
+            letter-spacing: 0.13em;
+            color: var(--ink-3);
+        }
+
+        section {
+            border-top: 1px solid var(--rule-2);
+            margin-top: 1.7rem;
+            padding-top: 1.15rem;
+        }
+
+        p {
+            margin-bottom: 0.95rem;
+        }
+
+        p:first-of-type {
+            font-size: 1.06rem;
+        }
+
+        p:last-child {
+            margin-bottom: 0;
+        }
+
+        .back {
+            display: block;
+            border-top: 1px solid var(--rule);
+            margin-top: 2.6rem;
+            padding-top: 0.9rem;
+            text-decoration: none;
+        }
+
+        .back:hover {
+            color: var(--ink);
+        }
+
+        @media (max-width: 34rem) {
+            body {
+                font-size: 17px;
+            }
+
+            main {
+                padding: 2.75rem 1.15rem 4rem;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
         }
     </style>
 </head>
@@ -37,17 +163,23 @@
 <body>
     <main>
         <h1>Why This Site Was Built</h1>
-        <p>
-            I don't think mass applying to jobs is ever the most effective way to get an internship or a job, so my
-            intended use case for this isn't to aggregate a bunch of listings and apply to all of them blindly. Instead,
-            I want to find niche opportunities that might get overlooked by other boards and let people discover them
-            easily.
-        </p>
-        <p>
-            This site was not made with any malicious intent; my goal is to simply make it easier for people to find
-            internship opportunities that might otherwise be overlooked, not to exploit or misuse the data in any way.
-        </p>
-        <p><a href="/">Back to listings</a></p>
+        <p class="meta">Adeel's Internship List</p>
+
+        <section>
+            <p>
+                I don't think mass applying to jobs is ever the most effective way to get an internship or a job, so my
+                intended use case for this isn't to aggregate a bunch of listings and apply to all of them blindly.
+                Instead, I want to find niche opportunities that might get overlooked by other boards and let people
+                discover them easily.
+            </p>
+            <p>
+                This site was not made with any malicious intent; my goal is to simply make it easier for people to
+                find internship opportunities that might otherwise be overlooked, not to exploit or misuse the data in
+                any way.
+            </p>
+        </section>
+
+        <a class="back" href="/">← Back to listings</a>
     </main>
 </body>
 

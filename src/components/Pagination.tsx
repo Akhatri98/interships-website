@@ -10,10 +10,10 @@ export function Pagination({ page, pageCount, onPage }: Props) {
   return (
     <nav className="pagination" aria-label="Pagination">
       <button disabled={page === 0} onClick={() => onPage(page - 1)}>
-        ← Prev
+        ← Previous
       </button>
       <span className="page-status">
-        Page {page + 1} of {pageCount}
+        Page {page + 1} / {pageCount}
       </span>
       <button disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>
         Next →

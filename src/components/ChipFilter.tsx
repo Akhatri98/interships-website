@@ -11,7 +11,7 @@ interface Props {
   priority?: string[]
   // How many chips to show when collapsed (selected chips are always shown too).
   collapsedCount?: number
-  // Extra controls rendered in the header (mode toggle, pay toggle, …).
+  // Extra controls rendered beside the label (the match-mode toggle).
   controls?: ReactNode
 }
 
@@ -50,9 +50,9 @@ export function ChipFilter({
   const hiddenCount = ordered.length - visible.length
 
   return (
-    <div className="chipfilter">
-      <div className="chipfilter-head">
-        <span className="chipfilter-label">{label}</span>
+    <div className="filter-group">
+      <div className="group-head">
+        <span className="group-label">{label}</span>
         {controls}
         {selected.size > 0 && (
           <button className="chip-clear" onClick={onClear}>
@@ -61,7 +61,7 @@ export function ChipFilter({
         )}
       </div>
 
-      <div className="chip-list">
+      <div className={`chip-list ${expanded ? 'expanded' : ''}`}>
         {visible.map(({ value, count }) => {
           const on = selected.has(value)
           return (
@@ -72,14 +72,14 @@ export function ChipFilter({
               aria-pressed={on}
             >
               {value}
-              <span className="chip-count">{count}</span>
+              <span className="chip-count">{count.toLocaleString()}</span>
             </button>
           )
         })}
 
         {(hiddenCount > 0 || expanded) && (
           <button className="chip-more" onClick={() => setExpanded((e) => !e)}>
-            {expanded ? 'Less ▲' : `More (+${hiddenCount}) ▼`}
+            {expanded ? 'Less' : `More +${hiddenCount}`}
           </button>
         )}
       </div>
