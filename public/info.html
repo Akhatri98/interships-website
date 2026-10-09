@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Disclaimer — Adeel's Internship List</title>
+    <title>More Info — Adeel's Job List</title>
     <link rel="icon" type="image/x-icon" href="/favicon.jpeg" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -40,6 +40,10 @@
             --sel: rgba(108, 95, 158, 0.15);
             --serif: "Source Serif 4", Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
             --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+            /* graph paper, same as the board */
+            --grid: #f0efea;
+            --cell: 24px;
         }
 
         :root[data-theme="dark"] {
@@ -53,6 +57,7 @@
             --accent: #b3a5db;
             --accent-soft: #8479b0;
             --sel: rgba(179, 165, 219, 0.2);
+            --grid: #1c1c19;
         }
 
         *,
@@ -64,7 +69,13 @@
         }
 
         body {
-            background: var(--paper);
+            min-height: 100vh;
+            background-color: var(--paper);
+            background-image:
+                linear-gradient(var(--grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+            background-size: var(--cell) var(--cell);
+            background-position: calc(50% + var(--cell) / 2) 0;
             color: var(--ink);
             font-family: var(--serif);
             font-size: 18px;
@@ -124,7 +135,7 @@
             margin-bottom: 0.95rem;
         }
 
-        p:first-of-type {
+        section p:first-of-type {
             font-size: 1.06rem;
         }
 
@@ -162,34 +173,21 @@
 
 <body>
     <main>
-        <h1>Disclaimer</h1>
-        <p class="meta">Adeel's Internship List</p>
+        <h1>More Info</h1>
+        <p class="meta">Adeel's Job List</p>
 
         <section>
             <p>
                 Yo ✌️. This site is really kinda sorta buns, but please reach out if you want me to make any changes to
-                it at <a href="https://www.akhatri.dev/">akhatri.dev</a>, I'm more than happy to improve the site.
+                it at <a href="https://www.akhatri.dev/">akhatri.dev</a>.
             </p>
             <p>
-                I'm not responsible for any malicious or unintended consequences that may arise from using this site.
-                The set of domains I source from is pretty trustworthy, but always exercise caution since I haven't
-                reviewed many of them personally.
+                If u want read access to my database, feel free to reach out I'm more than happy to share a key. It
+                works
+                pretty well with like AI agents and whatever. Obviously spam applying is questionable, but u do u I'm
+                just here to help.
             </p>
-            <p>
-                Please note that the date associated with every listing is that of when it was parsed, not published.
-                Given that the database is updated hourly, the parsed and published dates are probably going to be the
-                same for later listing. I think June 29/30, 2026 is when I ran the initial scrape so anything before
-                that is probably not so accurate. Lowkey kinda fast at getting listings though.
-            </p>
-            <p>
-                I'll try to keep this page updated and better as I continue to improve the site. Its fully free right
-                now but ofc that comes with trade offs. If enough people wanna crowdfund, I'll definitely make it a lot
-                better, I'm just broke and don't want to spend on API credits lol. But feel free to reach out if you do
-                want to, I can provide a cost breakdown of my idea for the future.
-            </p>
-            <p>
-                Thanks for visiting and I hope this helps you in your internship hunt.
-            </p>
+            <p>Ummmm I think thats it. Have a good day.</p>
         </section>
 
         <a class="back" href="/">← Back to listings</a>

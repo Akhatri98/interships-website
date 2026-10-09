@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { ChipCount, DateRange, Facets, Listing, ListingPage, ListingQuery } from '../types'
+import type { DateRange, FacetRow, FacetScope, Listing, ListingPage, ListingQuery } from '../types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -18,8 +18,11 @@ const COLUMNS =
   'id, canonical_url, title, company_slug, ats_source, company, pay, location, country, keywords_matched, snippet, first_seen_at'
 
 // The three columns the chip filters are built from. They are small enough
-// that sweeping every row costs ~350 kB gzipped, against ~11 MB for the full
-// rows — which is why the board can afford exact counts without an RPC.
+// that a sweep costs ~11 kB gzipped per thousand rows, against ~500 kB for the
+// full rows — which is why the board can afford exact counts without an RPC.
+// first_seen_at stays out of it on purpose: it would more than double that, so
+// the date range (and the searches) are applied server-side and each scope is
+// swept on its own.
 const FACET_COLUMNS = 'country, ats_source, keywords_matched'
 
 // PostgREST caps a single response at 1000 rows.
@@ -51,26 +54,41 @@ function cutoffISO(range: DateRange): string | null {
   return new Date(Date.now() - DAYS[range] * 86_400_000).toISOString()
 }
 
-/* Every filter the UI offers, pushed down into one PostgREST query so the
-   database does the work and the browser only ever sees a page. Typed loosely
-   because the filter builder and the final response builder differ in shape. */
+/* The searches and the date range: the filters the chip counts are swept
+   under. Pass `since` to pin the cutoff, so a count and the pages fetched
+   after it describe the same rows. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyFilters<T>(builder: T, query: ListingQuery): T {
+function applyScope<T>(builder: T, scope: FacetScope, since = cutoffISO(scope.dateRange)): T {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q = builder as any
 
-  const company = query.company.trim()
+  const company = scope.company.trim()
   if (company) {
     const v = quote(`%${company}%`)
     // The display name is often null, so fall back to the slug we scraped.
     q = q.or(`company.ilike.${v},company_slug.ilike.${v}`)
   }
 
-  const text = query.text.trim()
+  const text = scope.text.trim()
   if (text) {
     const v = quote(`%${text}%`)
     q = q.or(`title.ilike.${v},snippet.ilike.${v}`)
   }
+
+  if (since) q = q.gte('first_seen_at', since)
+
+  return q as T
+}
+
+/* Every filter the UI offers, pushed down into one PostgREST query so the
+   database does the work and the browser only ever sees a page. Typed loosely
+   because the filter builder and the final response builder differ in shape.
+   The chip filters here are mirrored in the browser by countFacets() — change
+   one, change the other. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyFilters<T>(builder: T, query: ListingQuery): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q = applyScope(builder, query) as any
 
   if (query.keywords.length > 0) {
     const lit = arrayLiteral(query.keywords)
@@ -81,9 +99,6 @@ function applyFilters<T>(builder: T, query: ListingQuery): T {
 
   if (query.countries.length > 0) q = q.in('country', query.countries)
   if (query.atsSources.length > 0) q = q.in('ats_source', query.atsSources)
-
-  const since = cutoffISO(query.dateRange)
-  if (since) q = q.gte('first_seen_at', since)
 
   return q as T
 }
@@ -106,23 +121,6 @@ export async function fetchListingPage(query: ListingQuery): Promise<ListingPage
   return { rows: (data ?? []) as unknown as Listing[], total: count ?? 0 }
 }
 
-// Count-sorted chips from a value getter.
-function tally(rows: FacetRow[], get: (r: FacetRow) => Iterable<string>): ChipCount[] {
-  const counts = new Map<string, number>()
-  for (const row of rows) {
-    for (const v of get(row)) counts.set(v, (counts.get(v) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-}
-
-interface FacetRow {
-  country: string | null
-  ats_source: string | null
-  keywords_matched: string[] | null
-}
-
 // Run `task` over [0, n) with a fixed number of requests in flight.
 async function pool<T>(n: number, limit: number, task: (i: number) => Promise<T>): Promise<T[]> {
   const results = new Array<T>(n)
@@ -138,59 +136,61 @@ async function pool<T>(n: number, limit: number, task: (i: number) => Promise<T>
   return results
 }
 
-/* The sweep is the one expensive thing the board still does, and the answer
-   only moves when the scraper runs, so keep it for the tab. */
-const FACET_CACHE_KEY = 'facets.v1'
+/* The sweep is the one expensive thing the board still does, and its answer
+   only moves when the scraper runs, so keep each one a while, keyed by the
+   scope it was swept under. The promise is what's kept, so two asks for the
+   same scope share one sweep. Memory only: an "any time" sweep is too big to
+   park in sessionStorage, so a refresh sweeps again. */
 const FACET_TTL = 15 * 60 * 1000
+const FACET_CACHE_SIZE = 12
+const sweeps = new Map<string, { at: number; rows: Promise<FacetRow[]> }>()
 
-function readFacetCache(): Facets | null {
-  try {
-    const raw = sessionStorage.getItem(FACET_CACHE_KEY)
-    if (!raw) return null
-    const { at, facets } = JSON.parse(raw) as { at: number; facets: Facets }
-    return Date.now() - at < FACET_TTL ? facets : null
-  } catch {
-    return null // private browsing, or a cache written by an older build
-  }
+export function fetchFacetRows(scope: FacetScope): Promise<FacetRow[]> {
+  const key = JSON.stringify([scope.dateRange, scope.company.trim(), scope.text.trim()])
+  const hit = sweeps.get(key)
+  if (hit && Date.now() - hit.at < FACET_TTL) return hit.rows
+
+  const rows = sweepFacetRows(scope)
+  sweeps.delete(key) // re-insert at the end, so the oldest scope is evicted first
+  sweeps.set(key, { at: Date.now(), rows })
+
+  const oldest = sweeps.keys().next().value
+  if (sweeps.size > FACET_CACHE_SIZE && oldest !== undefined) sweeps.delete(oldest)
+
+  // A failed sweep shouldn't be handed out again.
+  rows.catch(() => {
+    if (sweeps.get(key)?.rows === rows) sweeps.delete(key)
+  })
+
+  return rows
 }
 
-function writeFacetCache(facets: Facets): void {
-  try {
-    sessionStorage.setItem(FACET_CACHE_KEY, JSON.stringify({ at: Date.now(), facets }))
-  } catch {
-    /* the sweep just runs again next time */
-  }
+// The whole board, whatever is filtered — for the masthead.
+export async function fetchTotal(): Promise<number> {
+  const { count, error } = await supabase.from('listings').select('id', { count: 'exact', head: true })
+  if (error) throw new Error(error.message)
+  return count ?? 0
 }
 
-export async function fetchFacets(): Promise<Facets> {
-  const cached = readFacetCache()
-  if (cached) return cached
-
-  const facets = await sweepFacets()
-  writeFacetCache(facets)
-  return facets
-}
-
-/* The chip vocabularies and their counts. Counts are global — they say how
-   many listings carry a value in total, not how many survive the other
-   filters — which is what the board showed before it paginated server-side.
+/* Every row in `scope`, with just the columns the chips are built from.
 
    Ordered by id (the primary key, so it is an index scan) because .range()
    over an unordered table is not stable across pages. */
-async function sweepFacets(): Promise<Facets> {
-  const { count, error: countError } = await supabase
-    .from('listings')
-    .select('id', { count: 'exact', head: true })
+async function sweepFacetRows(scope: FacetScope): Promise<FacetRow[]> {
+  const since = cutoffISO(scope.dateRange)
+
+  const { count, error: countError } = await applyScope(
+    supabase.from('listings').select('id', { count: 'exact', head: true }),
+    scope,
+    since,
+  )
 
   if (countError) throw new Error(countError.message)
 
-  const total = count ?? 0
-  const pages = Math.ceil(total / BATCH)
+  const pages = Math.ceil((count ?? 0) / BATCH)
 
   const chunks = await pool(pages, SWEEP_CONCURRENCY, async (i) => {
-    const { data, error } = await supabase
-      .from('listings')
-      .select(FACET_COLUMNS)
+    const { data, error } = await applyScope(supabase.from('listings').select(FACET_COLUMNS), scope, since)
       .order('id')
       .range(i * BATCH, i * BATCH + BATCH - 1)
 
@@ -198,12 +198,10 @@ async function sweepFacets(): Promise<Facets> {
     return (data ?? []) as unknown as FacetRow[]
   })
 
-  const rows = chunks.flat()
-
-  return {
-    keywords: tally(rows, (r) => r.keywords_matched ?? []),
-    countries: tally(rows, (r) => (r.country?.trim() ? [r.country.trim()] : [])),
-    atsSources: tally(rows, (r) => (r.ats_source?.trim() ? [r.ats_source.trim()] : [])),
-    total,
-  }
+  // Trimmed once here, so the chips and the browser-side filtering agree.
+  return chunks.flat().map((r) => ({
+    country: r.country?.trim() || null,
+    ats_source: r.ats_source?.trim() || null,
+    keywords_matched: r.keywords_matched,
+  }))
 }

@@ -43,10 +43,24 @@ export interface ListingPage {
   total: number // matching rows across every page
 }
 
-// Chip vocabularies + counts, swept once and reused for the session.
+// What the chip counts are swept under: every filter but the chips themselves,
+// which are cheap enough to re-count in the browser on each click.
+export interface FacetScope {
+  company: string
+  text: string
+  dateRange: DateRange
+}
+
+// One listing as the chip counts see it: just the three faceted columns.
+export interface FacetRow {
+  country: string | null
+  ats_source: string | null
+  keywords_matched: string[] | null
+}
+
+// Chip vocabularies + counts, each section counted under the others' filters.
 export interface Facets {
   keywords: ChipCount[]
   countries: ChipCount[]
   atsSources: ChipCount[]
-  total: number
 }

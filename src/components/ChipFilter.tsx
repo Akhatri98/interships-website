@@ -29,13 +29,19 @@ export function ChipFilter({
 
   // Priority items first (in the given order), then the rest in their original order.
   const ordered = useMemo<ChipCount[]>(() => {
+    // A selected value can drop out of `items` when nothing in the date range
+    // carries it; keep it at 0 so it can still be switched off.
+    const known = new Set(items.map((i) => i.value))
+    const orphans = [...selected].filter((v) => !known.has(v)).map((value) => ({ value, count: 0 }))
+    const all = [...items, ...orphans]
+
     const prioritySet = new Set(priority)
     const pinned = priority
-      .map((p) => items.find((i) => i.value === p))
+      .map((p) => all.find((i) => i.value === p))
       .filter((i): i is ChipCount => Boolean(i))
-    const rest = items.filter((i) => !prioritySet.has(i.value))
+    const rest = all.filter((i) => !prioritySet.has(i.value))
     return [...pinned, ...rest]
-  }, [items, priority])
+  }, [items, priority, selected])
 
   // Collapsed view: the first N, plus any selected chips so they never hide.
   const baseCount = Math.max(collapsedCount, priority.length)
@@ -45,7 +51,7 @@ export function ChipFilter({
     return ordered.filter((i) => baseSet.has(i.value) || selected.has(i.value))
   }, [ordered, expanded, baseCount, selected])
 
-  if (items.length === 0) return null
+  if (ordered.length === 0) return null
 
   const hiddenCount = ordered.length - visible.length
 
@@ -61,7 +67,7 @@ export function ChipFilter({
         )}
       </div>
 
-      <div className={`chip-list ${expanded ? 'expanded' : ''}`}>
+      <div className="chip-list">
         {visible.map(({ value, count }) => {
           const on = selected.has(value)
           return (

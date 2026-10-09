@@ -1,4 +1,4 @@
-/* Adeel's Internship List, set like the working paper the CV is.
+/* Adeel's Job List, set like the working paper the CV is.
 
    Same edition as akhatri.dev: one serif carries the prose, one mono carries
    anything that labels, dates, counts or numbers it, and nothing crosses over.
@@ -7,7 +7,9 @@
    furniture around it.
 
    Color does two jobs: ink on paper, and a link (or an active filter) under
-   the cursor. That's all: no cards, no shadows, no gradients.
+   the cursor. That's all: no shadows, no rounding beyond a hair. The paper
+   itself is graph paper, like a maths notebook, and each listing sits in its
+   own hairline box on it.
 
    The edition is stamped onto <html data-theme> by the inline script in
    index.html before first paint, so there is no flash. With JS off you get
@@ -34,6 +36,10 @@
 
   --serif: "Source Serif 4", Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* graph paper */
+  --grid: #f0efea;
+  --cell: 24px;
 }
 
 :root[data-theme="dark"] {
@@ -49,6 +55,7 @@
   --accent-soft: #8479b0;
   --sel: rgba(179, 165, 219, 0.2);
   --flag: #d08a8a;
+  --grid: #1c1c19;
 }
 
 *,
@@ -70,7 +77,14 @@ body,
 }
 
 body {
-  background: var(--paper);
+  background-color: var(--paper);
+  /* Shifted half a cell so a line runs down the middle of the page, which
+     lands both edges of the 42rem (28-cell) column on the grid. */
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+  background-position: calc(50% + var(--cell) / 2) 0;
   color: var(--ink);
   font-family: var(--serif);
   font-size: 18px;
@@ -117,6 +131,7 @@ button {
 .entry-date,
 .entry-pay,
 .entry-ats,
+.entry-btn,
 .kw,
 .resultbar,
 .pagination button,
@@ -202,14 +217,40 @@ button {
   color: var(--ink);
 }
 
+/* A warning you can close: boxed so it reads as an aside, the × at the end. */
 .notice {
-  font-size: 0.62rem;
-  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   margin-top: 0.85rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  background: var(--paper);
+  border: 1px solid var(--accent-soft);
+  border-radius: 2px;
+  font-size: 0.62rem;
+  color: var(--ink-2);
+}
+
+.notice > span {
+  flex: 1;
 }
 
 .notice a {
   color: var(--accent);
+}
+
+.notice-close {
+  flex: none;
+  padding: 0 0.3rem;
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.notice-close:hover {
+  color: var(--ink);
 }
 
 /* ------------------------------ blocks ------------------------------
@@ -351,14 +392,6 @@ button {
   gap: 0.4rem 0.45rem;
 }
 
-/* Expanded, a filter can run to hundreds of values; cap it so the page below
-   stays reachable. Collapsed it is short enough to sit in the flow. */
-.chip-list.expanded {
-  max-height: 16rem;
-  overflow-y: auto;
-  padding-right: 0.4rem;
-}
-
 .chip-toggle {
   display: inline-flex;
   align-items: baseline;
@@ -387,11 +420,18 @@ button {
 .chip-count {
   color: var(--ink-3);
   font-size: 0.92em;
+  transition: opacity 0.15s;
 }
 
 .chip-toggle.on .chip-count {
   color: var(--paper);
   opacity: 0.65;
+}
+
+/* Counts for a new date range still being swept: the old numbers fade until
+   the new ones land, the chips themselves stay usable. */
+.is-counting .chip-toggle .chip-count {
+  opacity: 0.3;
 }
 
 .chip-more {
@@ -416,6 +456,9 @@ button {
 }
 
 .list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   list-style: none;
 }
 
@@ -426,14 +469,12 @@ button {
   transition: opacity 0.15s;
 }
 
+/* Paper-filled, so the grid stops at the box and the text sits on clean paper. */
 .entry {
-  border-top: 1px solid var(--rule);
-  padding: 0.85rem 0;
-}
-
-.entry:first-child {
-  border-top: 0;
-  padding-top: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  padding: 0.85rem 1rem 0.9rem;
 }
 
 .entry-head {
@@ -489,10 +530,78 @@ button {
   white-space: nowrap;
 }
 
+.entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.entry-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 0.3rem 0.6rem;
+  background: none;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.entry-btn:hover,
+.entry-btn[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: var(--accent-soft);
+}
+
+.entry-apply {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.entry-apply:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+
+/* The description slides open: a one-row grid going 0fr → 1fr, so the height
+   follows the text without measuring it. While shut it is also out of the tab
+   order and away from screen readers; visibility flips only once the slide
+   has finished closing. */
+.entry-desc {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows 0.22s ease, visibility 0s linear 0.22s;
+}
+
+.entry-desc.open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 0.22s ease, visibility 0s;
+}
+
+.entry-desc > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-desc,
+  .entry-desc.open {
+    transition: none;
+  }
+}
+
 .entry-note {
   color: var(--ink-2);
   font-size: 0.92rem;
-  margin-top: 0.3rem;
+  padding-top: 0.7rem;
 }
 
 .entry-kw {

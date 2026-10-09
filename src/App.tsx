@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchFacets, fetchListingPage } from './lib/supabase'
-import type { DateRange, Facets, KeywordMode, Listing, ListingQuery } from './types'
+import { fetchFacetRows, fetchListingPage, fetchTotal } from './lib/supabase'
+import { countFacets } from './lib/facets'
+import type { DateRange, FacetRow, KeywordMode, Listing, ListingQuery } from './types'
 import { ListingCard } from './components/ListingCard'
 import { ChipFilter } from './components/ChipFilter'
 import { DateFilter } from './components/DateFilter'
@@ -24,7 +25,7 @@ const DEFAULT_FILTERS = {
   keywords: ['intern', 'software'] as string[],
   mode: 'AND' as KeywordMode,
   countries: ['United States'] as string[],
-  atsSources: [] as string[],
+  atsSources: ['greenhouse', 'lever', 'ashby'] as string[],
   dateRange: '7d' as DateRange,
 }
 
@@ -47,6 +48,18 @@ function readFilters(): Filters {
 
 // Read once per page load, so StrictMode's double mount can't re-read it.
 const INITIAL_FILTERS = readFilters()
+
+/* The warning under the masthead stays shut once closed. Rename the key when
+   the warning says something new, so it shows again for everyone. */
+const NOTICE_KEY = 'notice.workday-dates'
+
+function readNoticeOpen(): boolean {
+  try {
+    return localStorage.getItem(NOTICE_KEY) === null
+  } catch {
+    return true
+  }
+}
 
 type Theme = 'light' | 'dark'
 
@@ -100,6 +113,16 @@ function useDebounced<T>(value: T, ms: number): T {
 
 export default function App() {
   const [theme, toggleEdition] = useEdition()
+  const [noticeOpen, setNoticeOpen] = useState(readNoticeOpen)
+
+  function dismissNotice() {
+    setNoticeOpen(false)
+    try {
+      localStorage.setItem(NOTICE_KEY, 'dismissed')
+    } catch {
+      /* private browsing — it just comes back next visit */
+    }
+  }
 
   const [companyInput, setCompanyInput] = useState(INITIAL_FILTERS.company)
   const [textInput, setTextInput] = useState(INITIAL_FILTERS.text)
@@ -118,8 +141,10 @@ export default function App() {
   const [loaded, setLoaded] = useState(false) // has a first page ever landed?
   const [error, setError] = useState<string | null>(null)
 
-  const [facets, setFacets] = useState<Facets | null>(null)
+  const [facetRows, setFacetRows] = useState<FacetRow[] | null>(null)
+  const [facetsLoading, setFacetsLoading] = useState(true)
   const [facetError, setFacetError] = useState<string | null>(null)
+  const [boardTotal, setBoardTotal] = useState<number | null>(null)
 
   const company = useDebounced(companyInput, 300)
   const text = useDebounced(textInput, 300)
@@ -164,23 +189,48 @@ export default function App() {
       })
   }, [query])
 
-  /* The chip vocabularies come from a separate, much narrower sweep of the
-     whole table. It runs alongside the first page rather than blocking it, so
-     the listings show up first and the filters fill in a moment later. */
+  /* The chip vocabularies come from a separate, much narrower sweep of every
+     row the searches and date range let through. It runs alongside the first
+     page rather than blocking it, so the listings show up first and the
+     filters fill in a moment later. Changing a search or the range re-sweeps;
+     the old counts stay up, faded, until the new ones land. */
   useEffect(() => {
     let cancelled = false
+    setFacetsLoading(true)
 
-    fetchFacets()
-      .then((f) => {
-        if (!cancelled) setFacets(f)
+    fetchFacetRows({ company, text, dateRange })
+      .then((rows) => {
+        if (cancelled) return
+        setFacetRows(rows)
+        setFacetError(null)
       })
       .catch((err: unknown) => {
         if (!cancelled) setFacetError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setFacetsLoading(false)
       })
 
     return () => {
       cancelled = true
     }
+  }, [company, text, dateRange])
+
+  // The chips themselves are counted here, so a click re-counts the other
+  // sections without a round trip.
+  const facets = useMemo(
+    () =>
+      facetRows &&
+      countFacets(facetRows, { keywords: selected, mode, countries, atsSources }),
+    [facetRows, selected, mode, countries, atsSources],
+  )
+
+  useEffect(() => {
+    fetchTotal()
+      .then(setBoardTotal)
+      .catch(() => {
+        /* the masthead just goes without a count */
+      })
   }, [])
 
   // Hold the filter set for the life of this tab, so a refresh picks up where
@@ -228,20 +278,20 @@ export default function App() {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const rangeStart = total === 0 ? 0 : page * PAGE_SIZE + 1
   const rangeEnd = Math.min(total, page * PAGE_SIZE + PAGE_SIZE)
-  const filtering = facets !== null && total !== facets.total
+  const filtering = boardTotal !== null && total !== boardTotal
 
   return (
     <div className="app">
       <header className="masthead">
-        <h1 className="site-title">Adeel's Internship List</h1>
+        <h1 className="site-title">Adeel's Job List</h1>
         <p className="meta">
-          <span>Scraped from ATS boards</span>
-          <span>{facets ? `${facets.total.toLocaleString()} listings` : ''}</span>
+          <span>Internship and New grad roles</span>
+          <span>{boardTotal !== null ? `${boardTotal.toLocaleString()} listings` : ''}</span>
         </p>
 
         <nav className="mast-nav">
           <span className="mast-links">
-            First time here? Please read the <a href="/info.html">disclaimer</a>
+            First time here? See <a href="/info.html">more info</a>
           </span>
           <button
             className="edition"
@@ -251,6 +301,15 @@ export default function App() {
             {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
         </nav>
+
+        {noticeOpen && (
+          <div className="notice" role="note">
+            <span>Workday date parsing is WIP: posting dates may not be accurate to the listing.</span>
+            <button className="notice-close" onClick={dismissNotice} aria-label="Dismiss this warning">
+              ×
+            </button>
+          </div>
+        )}
       </header>
 
       <section className="block">
@@ -280,7 +339,7 @@ export default function App() {
         {facetError && <p className="group-note">Filters unavailable: {facetError}</p>}
 
         {facets && (
-          <>
+          <div className={facetsLoading ? 'is-counting' : ''}>
             <ChipFilter
               label="Keywords"
               items={facets.keywords}
@@ -323,7 +382,7 @@ export default function App() {
               onClear={() => onFilterChange(() => setAtsSources(new Set()))}
               collapsedCount={6}
             />
-          </>
+          </div>
         )}
       </section>
 
@@ -346,7 +405,7 @@ export default function App() {
                     {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()}
                   </strong>{' '}
                   of <strong>{total.toLocaleString()}</strong>
-                  {filtering && ` (of ${facets.total.toLocaleString()} total)`}
+                  {filtering && ` (of ${boardTotal.toLocaleString()} total)`}
                 </>
               )}
               {loading && <span className="working"> · working…</span>}

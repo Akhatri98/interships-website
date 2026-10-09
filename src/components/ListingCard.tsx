@@ -1,3 +1,4 @@
+import { useId, useState } from 'react'
 import type { Listing } from '../types'
 
 // Format first_seen_at as date + time in the user's local timezone. Falls back
@@ -50,8 +51,9 @@ function displayLocation(listing: Listing): string {
   return parts.length ? parts.join(' · ') : 'Location not provided'
 }
 
-/* A listing is a dated entry in a list, not a card: title and date on one
-   line, the particulars under it, everything separated by a hairline. */
+/* A listing is a dated entry in its own box: title and date on one line, the
+   particulars under it, then the two things you do with it. The description
+   stays shut until asked for. */
 export function ListingCard({ listing, activeKeywords }: Props) {
   const { canonical_url, title, pay, ats_source, first_seen_at } = listing
   const keywords = listing.keywords_matched ?? []
@@ -59,6 +61,10 @@ export function ListingCard({ listing, activeKeywords }: Props) {
   const location = displayLocation(listing)
   const payLabel = pay?.trim()
   const ats = ats_source?.trim()
+  const snippet = listing.snippet?.trim()
+
+  const [open, setOpen] = useState(false)
+  const descId = useId()
 
   return (
     <article className="entry">
@@ -78,8 +84,6 @@ export function ListingCard({ listing, activeKeywords }: Props) {
         {ats && <span className="entry-ats">{ats}</span>}
       </p>
 
-      {listing.snippet?.trim() && <p className="entry-note">{listing.snippet}</p>}
-
       {keywords.length > 0 && (
         <p className="entry-kw">
           {keywords.map((k) => (
@@ -88,6 +92,30 @@ export function ListingCard({ listing, activeKeywords }: Props) {
             </span>
           ))}
         </p>
+      )}
+
+      <div className="entry-actions">
+        <a className="entry-btn entry-apply" href={canonical_url} target="_blank" rel="noreferrer">
+          Apply <span aria-hidden="true">↗</span>
+        </a>
+        {snippet && (
+          <button
+            className="entry-btn"
+            aria-expanded={open}
+            aria-controls={descId}
+            onClick={() => setOpen((o) => !o)}
+          >
+            Description <span aria-hidden="true">{open ? '−' : '+'}</span>
+          </button>
+        )}
+      </div>
+
+      {snippet && (
+        <div id={descId} className={`entry-desc ${open ? 'open' : ''}`}>
+          <div>
+            <p className="entry-note">{snippet}</p>
+          </div>
+        </div>
       )}
     </article>
   )
