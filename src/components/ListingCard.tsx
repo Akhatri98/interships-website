@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import type { Listing } from '../types'
+import { isTopCompany } from '../lib/topCompanies'
 
 // Format first_seen_at as date + time in the user's local timezone. Falls back
 // to Eastern (EST/EDT) if the runtime can't resolve a system timezone.
@@ -53,7 +54,7 @@ function displayLocation(listing: Listing): string {
 
 /* A listing is a dated entry in its own box: title and date on one line, the
    particulars under it, then the two things you do with it. The description
-   stays shut until asked for. */
+   stays shut until asked for. A top company's box is framed in red. */
 export function ListingCard({ listing, activeKeywords }: Props) {
   const { canonical_url, title, pay, ats_source, first_seen_at } = listing
   const keywords = listing.keywords_matched ?? []
@@ -67,7 +68,7 @@ export function ListingCard({ listing, activeKeywords }: Props) {
   const descId = useId()
 
   return (
-    <article className="entry">
+    <article className={`entry ${isTopCompany(listing) ? 'entry-top' : ''}`}>
       <p className="entry-head">
         <a className="entry-title" href={canonical_url} target="_blank" rel="noreferrer">
           {title?.trim() || canonical_url}

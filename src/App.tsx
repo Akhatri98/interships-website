@@ -22,6 +22,7 @@ const MODES: { value: KeywordMode; label: string; title: string }[] = [
 const DEFAULT_FILTERS = {
   company: '',
   text: '',
+  topOnly: false,
   keywords: ['intern', 'software'] as string[],
   mode: 'AND' as KeywordMode,
   countries: ['United States'] as string[],
@@ -126,6 +127,7 @@ export default function App() {
 
   const [companyInput, setCompanyInput] = useState(INITIAL_FILTERS.company)
   const [textInput, setTextInput] = useState(INITIAL_FILTERS.text)
+  const [topOnly, setTopOnly] = useState(INITIAL_FILTERS.topOnly)
   const [selected, setSelected] = useState<Set<string>>(() => new Set(INITIAL_FILTERS.keywords))
   const [mode, setMode] = useState<KeywordMode>(INITIAL_FILTERS.mode)
   const [countries, setCountries] = useState<Set<string>>(() => new Set(INITIAL_FILTERS.countries))
@@ -153,6 +155,7 @@ export default function App() {
     () => ({
       company,
       text,
+      topOnly,
       keywords: [...selected],
       keywordMode: mode,
       countries: [...countries],
@@ -161,7 +164,7 @@ export default function App() {
       page,
       pageSize: PAGE_SIZE,
     }),
-    [company, text, selected, mode, countries, atsSources, dateRange, page],
+    [company, text, topOnly, selected, mode, countries, atsSources, dateRange, page],
   )
 
   /* One page at a time, straight from the database. Responses can land out of
@@ -198,7 +201,7 @@ export default function App() {
     let cancelled = false
     setFacetsLoading(true)
 
-    fetchFacetRows({ company, text, dateRange })
+    fetchFacetRows({ company, text, topOnly, dateRange })
       .then((rows) => {
         if (cancelled) return
         setFacetRows(rows)
@@ -214,7 +217,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [company, text, dateRange])
+  }, [company, text, topOnly, dateRange])
 
   // The chips themselves are counted here, so a click re-counts the other
   // sections without a round trip.
@@ -239,6 +242,7 @@ export default function App() {
     const filters: Filters = {
       company: companyInput,
       text: textInput,
+      topOnly,
       keywords: [...selected],
       mode,
       countries: [...countries],
@@ -250,7 +254,7 @@ export default function App() {
       sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters))
     } catch {
     }
-  }, [companyInput, textInput, selected, mode, countries, atsSources, dateRange])
+  }, [companyInput, textInput, topOnly, selected, mode, countries, atsSources, dateRange])
 
   // Any filter change puts you back on the first page. Both updates land in
   // one React batch, so it costs one request, not two.
@@ -332,6 +336,23 @@ export default function App() {
             value={textInput}
             onChange={(e) => onFilterChange(() => setTextInput(e.target.value))}
           />
+        </div>
+
+        <div className="filter-group">
+          <div className="group-head">
+            <span className="group-label">Companies</span>
+          </div>
+
+          <div className="chip-list">
+            <button
+              className={`chip-toggle ${topOnly ? 'on' : ''}`}
+              aria-pressed={topOnly}
+              title="Only the hand-picked top tech companies, the listings framed in red"
+              onClick={() => onFilterChange(() => setTopOnly((on) => !on))}
+            >
+              Top companies only
+            </button>
+          </div>
         </div>
 
         <DateFilter value={dateRange} onChange={(v) => onFilterChange(() => setDateRange(v))} />

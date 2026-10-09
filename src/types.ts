@@ -29,6 +29,7 @@ export interface ChipCount {
 export interface ListingQuery {
   company: string
   text: string // matched against title and snippet
+  topOnly: boolean // just the companies in lib/topCompanies.ts
   keywords: string[]
   keywordMode: KeywordMode
   countries: string[]
@@ -48,6 +49,7 @@ export interface ListingPage {
 export interface FacetScope {
   company: string
   text: string
+  topOnly: boolean
   dateRange: DateRange
 }
 

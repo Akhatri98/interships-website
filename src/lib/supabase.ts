@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { DateRange, FacetRow, FacetScope, Listing, ListingPage, ListingQuery } from '../types'
+import { TOP_BOARDS } from './topCompanies'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -49,6 +50,20 @@ function arrayLiteral(values: string[]): string {
   return `{${values.map(quote).join(',')}}`
 }
 
+/* "Top companies only" as one or=(…): per ATS, the listing's slug has to be
+   one of that ATS's boards. Workday slugs carry a site after the tenant, so
+   those are matched as a regex over the tenant instead. Built once — it's the
+   same couple of kB on every request that asks for it. */
+const TOP_COMPANY_FILTER = [...TOP_BOARDS]
+  .map(([ats, slugs]) => {
+    const test =
+      ats === 'workday'
+        ? `company_slug.match.${quote(`^(${[...slugs].join('|')})[.]wd[0-9]+/`)}`
+        : `company_slug.in.(${[...slugs].map(quote).join(',')})`
+    return `and(ats_source.eq.${quote(ats)},${test})`
+  })
+  .join(',')
+
 function cutoffISO(range: DateRange): string | null {
   if (range === 'any') return null
   return new Date(Date.now() - DAYS[range] * 86_400_000).toISOString()
@@ -74,6 +89,8 @@ function applyScope<T>(builder: T, scope: FacetScope, since = cutoffISO(scope.da
     const v = quote(`%${text}%`)
     q = q.or(`title.ilike.${v},snippet.ilike.${v}`)
   }
+
+  if (scope.topOnly) q = q.or(TOP_COMPANY_FILTER)
 
   if (since) q = q.gte('first_seen_at', since)
 
@@ -146,7 +163,7 @@ const FACET_CACHE_SIZE = 12
 const sweeps = new Map<string, { at: number; rows: Promise<FacetRow[]> }>()
 
 export function fetchFacetRows(scope: FacetScope): Promise<FacetRow[]> {
-  const key = JSON.stringify([scope.dateRange, scope.company.trim(), scope.text.trim()])
+  const key = JSON.stringify([scope.dateRange, scope.company.trim(), scope.text.trim(), scope.topOnly])
   const hit = sweeps.get(key)
   if (hit && Date.now() - hit.at < FACET_TTL) return hit.rows
 

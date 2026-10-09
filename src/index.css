@@ -9,7 +9,8 @@
    Color does two jobs: ink on paper, and a link (or an active filter) under
    the cursor. That's all: no shadows, no rounding beyond a hair. The paper
    itself is graph paper, like a maths notebook, and each listing sits in its
-   own hairline box on it.
+   own hairline box on it. The one exception is a listing from a top company,
+   whose box is red and glows.
 
    The edition is stamped onto <html data-theme> by the inline script in
    index.html before first paint, so there is no flash. With JS off you get
@@ -34,6 +35,10 @@
   /* only for a failed fetch */
   --flag: #9a3f3f;
 
+  /* only for a top company's listing: its frame and the glow around it */
+  --top: #c8433b;
+  --top-glow: rgba(200, 67, 59, 0.32);
+
   --serif: "Source Serif 4", Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
@@ -55,6 +60,8 @@
   --accent-soft: #8479b0;
   --sel: rgba(179, 165, 219, 0.2);
   --flag: #d08a8a;
+  --top: #e2665c;
+  --top-glow: rgba(226, 102, 92, 0.38);
   --grid: #1c1c19;
 }
 
@@ -475,6 +482,12 @@ button {
   border: 1px solid var(--rule-2);
   border-radius: 2px;
   padding: 0.85rem 1rem 0.9rem;
+}
+
+/* A listing from one of the hand-picked top companies (lib/topCompanies.ts). */
+.entry-top {
+  border-color: var(--top);
+  box-shadow: 0 0 12px var(--top-glow);
 }
 
 .entry-head {
